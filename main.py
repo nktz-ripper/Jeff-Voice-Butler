@@ -1,3 +1,6 @@
+import tasklist_updater
+import schedule
+from constants import *
 import speech_recognition as sr
 import pyttsx3
 import pywhatkit
@@ -7,6 +10,9 @@ import pyjokes
 import time
 import requests
 import random
+import pandas as pd
+from pathlib import Path
+
 
 listener = sr.Recognizer()
 engine = pyttsx3.init()
@@ -16,13 +22,29 @@ engine.setProperty('rate', 160)
 engine.setProperty('volume', 2)
 
 
-
-
 butler ='jeff'
+
+standby_countdown = 0
+command=''
+alarm_states = {}
 
 def talk(text):
     engine.say(text)
     engine.runAndWait()
+
+def standby(counter):
+    try:
+        with sr.Microphone() as source:
+            listener.adjust_for_ambient_noise(source)  # Optional: Adjust for ambient noise
+            voice = listener.listen(source, timeout=5)  # Set a timeout of 5 seconds
+            command = listener.recognize_google(voice)
+            command = command.lower()
+            if butler in command:
+                standby_reset(counter)
+                talk('how can i help?')
+                
+    except:
+        pass
 
 
 
@@ -42,8 +64,16 @@ def take_command():
         #talk('balls')
         pass
 
-command=''
 
+
+
+
+def create_dataframe_from_csv(csv_file):
+    df = pd.read_csv(csv_file, delimiter=';', skipinitialspace=True)
+    df = df.dropna()  # Remove rows with missing values
+    df = df.set_index('key')
+    df = df['value'].apply(lambda x: x.strip())  # Remove leading/trailing spaces from values
+    return df.to_dict()
 
 def get_usd_brl_cotation():
     try:
@@ -87,158 +117,204 @@ def get_and_speak_cotation(currency):
     else:
         print("Invalid currency.")
         return
-
     if cotation is not None:
         speak_cotation(cotation, currency)
     else:
         print(f"Failed to retrieve the {currency} cotation.")
 
 
-
-        
-motivation_quotes = [
-    'stand up straight with your shoulders back',
-    'fear the bitterness that you would be',
-    'ask yourself: what should you be doing right now',
-    'picture your life a couple of years from now. Then picture the steps you must take to get there. You will get there',
-    'get good scrub',
-    'clean your room before you go change the world',
-    'have you been exercicing regularly?',
-    'just get to it',
-    'you have a mission, and that is to show them who is the boss',
-    'you are a force to be reckoned with',
-    'do it for the kids man. your kids',
-    'you put yourself in your position, no matter how bad. it is your responsability to go to a better one. just think a little more through before tough',
-    'if you are high in neuroticism you can incorporate the shadow by recognizing the negative emotion and redirecting it to: one, fear the failure scenario. two, strive for the success scenario',
-    'take a deep breath and get to phase 10',
-    'remember that too much extraversion makes you stupid, so capitalize on your misery',
-    'if you are feeling creative, write',
-    'in the back of your mind there is a post-it written: get back to Maringá and conquer that dragon',
-    'its on you man, only you can do it',
-    'you never know when a close friend or family member will need the best version of you',
-    'you are now building a raft out of someday island',
-    'tomorrow always comes, and you dont wanna find out that years gone by with you living the same day, over and over again'
-
-]
-
-
-
-def run_alexa():
-    try: 
-        command = take_command()
-        print(command)
+def functions(command):
+    try:
+        response = None  # Initialize the response variable
         if 'play' in command:
             song = command.replace('play', '')
-            talk('playing ' + song)
+            response = 'playing ' + song
             pywhatkit.playonyt(song)
         elif 'what time' in command:
             hour = datetime.datetime.now().strftime('%I:%M %p')
-            talk('Current time is ' + hour)
+            response = 'Current time is ' + hour
         elif 'what do you know about' in command:
             person = command.replace('what do you know about', '')
             info = wikipedia.summary(person, 1)
-            print(info)
-            talk(info)
-        elif 'hello' in command:
-            talk('hello sir')
-        elif 'hi' in command:
-            talk('how can i help you sir?')
-        elif 'hey' in command:
-            talk('hey man')
-        elif 'what can you do' in command:
-            talk('i can play music and tell you what time is it. But... You know... Balls')
+            if info != '':
+                response = info
+            else:
+                response = f'I know nothing about {person}'
         elif 'joke' in command:
-            talk(pyjokes.get_joke())
+            response = pyjokes.get_joke()
         elif 'good morning' in command:
             day = datetime.datetime.now().strftime("%A %d of %B and its %I:%M %p")
-            talk('good morning sir, today is is ' + day)
+            response = 'Good morning sir, today is ' + day
             get_and_speak_cotation("USD/BRL")
         elif 'what day' in command:
             day = datetime.datetime.now().strftime("%A, %d of %B")
-            talk('today is is ' + day)
-        elif 'thank you' in command:
-            talk('thank you sir')
-        elif 'thanks' in command:
-            talk('glad to help')
-        elif 'stand by' in command:
-            talk('say my name and i will wake')
-            standby()
-            if butler in command:
-                pass
-        elif 'have you seen my' in command:
-            talk('in my pants!')
-        elif 'funny' in command:
-            talk('balls')
-        elif 'have you ever been to' in command:
-            talk('oh, yes. I love it there!')
-        elif 'what part of' and 'have you been' in command:
-            talk('the south-eastern part, with the shops, and the lamps, and the cars...')
+            response = 'Today is ' + day
         elif 'dollar' in command:
             get_and_speak_cotation("USD/BRL")
         elif 'bitcoin' in command:
             get_and_speak_cotation("BTC/USD")
+        elif 'tell me' in command:
+            operation = command.split('me ')
+            key = operation[1]
+            if key != '':
+                value = df_importantdata.get(key, None)
+                if value is not None:
+                    response = f'Sure! {key} is {value}'
+                else:
+                    response = f'Could not find the {key} data point'
+            else: 
+                response = 'Say that again, please'
+        elif 'take a note' in command:
+            operation = command.split('take a note ')
+            text = str(operation[1])
+            if text != '':
+                try:
+                    tasklist_updater.post_notes(text)
+                    response = 'It is noted in Google Tasks'
+                except:
+                    response = 'Service inaccessible'
+            else:
+                response = 'Empty annotation, operation cancelled'
+        elif 'is going to' in command:
+            operation = command.split(' is going to ')
+            if operation[1] is not None:
+                response = f'Have a good time at {operation[1]}, {operation[0]}!'
+        elif 'are going to' in command:
+            operation = command.split(' are going to ')
+            if operation[1] is not None:
+                response = f'Please be safe at {operation[1]}, {operation[0]}!'
+        elif 'is back' in command:
+            response = f'Welcome back sir!'
         elif '+' in command:
             operation = command.split(' + ')
             firstnumber = int(operation[0])
             secondnumber = int(operation[1])
             result = firstnumber + secondnumber
-            talk(f'{firstnumber} plus {secondnumber} is equal to {result}')
+            response = f'{firstnumber} plus {secondnumber} is equal to {result}'
         elif '-' in command:
             operation = command.split(' - ')
             firstnumber = int(operation[0])
             secondnumber = int(operation[1])
             result = firstnumber - secondnumber
-            talk(f'{firstnumber} minus {secondnumber} is equal to {result}')
+            response = f'{firstnumber} minus {secondnumber} is equal to {result}'
         elif '*' in command:
             operation = command.split(' * ')
             firstnumber = int(operation[0])
             secondnumber = int(operation[1])
             result = firstnumber * secondnumber
-            talk(f'{firstnumber} times {secondnumber} is equal to {result}')
+            response = f'{firstnumber} times {secondnumber} is equal to {result}'
         elif '/' in command:
             operation = command.split(' / ')
             firstnumber = int(operation[0])
             secondnumber = int(operation[1])
             result = firstnumber / secondnumber
-            talk(f'{firstnumber} divided by {secondnumber} is equal to {result}')
+            response = f'{firstnumber} divided by {secondnumber} is equal to {result}'
         elif 'good night' in command:
-            talk('good night man, i will wake you seven hours from now')
+            response = 'Good night! I will wake you up seven hours from now'
             time.sleep(25200)
-            talk('good morning, time to wake up')
-        elif 'nap for' in command:
-            getminutes = command.split('for ')
-            getgetminutes = getminutes[1].split(' ')
-            minutes = int(getgetminutes[0])
-            talk(f'nighty nighty, i will wake you {minutes} minutes from now')
-            time.sleep(60*minutes)
-            talk('Hey, nap is over, time to wake up. wake up. wake up. wake up. wake up')
+            response += '\nGood morning! Time to wake up'
         elif 'motivation' in command:
-            talk(random.choice(motivation_quotes))
+            response = random.choice(list(motivation_quotes.values()))
+        elif 'that right' in command:
+            response = random.choice(list(thatsright.values()))
+        return response  # Return the response from each function
+    except Exception as e:
+        print(e)
+        return None  # Return None if an error occurs
 
-    except:
-        #talk('Come again for jeff.')
+def nap(command):
+    if 'nap for' in command:
+        getminutes = command.split('for ')
+        getgetminutes = getminutes[1].split(' ')
+        minutes = int(getgetminutes[0])
+        talk(f'nighty nighty, i will wake you {minutes} minutes from now')
+        time.sleep(60*minutes)
+        talk('Hey, nap is over, time to wake up. wake up. wake up. wake up. wake up')
+    else:
         pass
 
 
-def standby():
-    time.sleep(30)
-    with sr.Microphone() as source:
-        print('Jeff in on Stand-By')
-        voice = listener.listen(source)
-        command = listener.recognize_google(voice)
-        command = command.lower()
-        print(command)
-        return command
+def chitchat(command):
+    # Simple Conversation Script
+    for key in chit_chat:
+        if key in command:
+            value = chit_chat[key]
+            return str(value)
 
+    return None  # Return None if no partial match is found
+
+def check_alarm():
+    now = datetime.datetime.now()
+    weekday = now.strftime("%A")
+    hour_24 = now.strftime("%H:%M")
+    hour_ampm = now.strftime('%I:%M %p')
+    now = now.strftime("%d/%m/%Y %H:%M %A")
+    #print(now)
+
+    if 'Saturday' or 'Sunday' in weekday:
+        if ':00' in str(hour_24):
+            calculate_hours = str(hour_24).split(':')
+            calculate_hours = int(calculate_hours[0])
+            if 6 <= calculate_hours <= 23 and not alarm_states.get(now, False):
+                print(f'now, {hour_ampm}')
+                alarm_states[now] = True
+                talk(f'hey, it is, {hour_ampm}')
+            else:
+                pass
+        else:
+            pass
+    else:
+        if ':00' in str(hour_24):
+            calculate_hours = str(hour_24).split(':')
+            calculate_hours = int(calculate_hours[0])
+            if 6 <= calculate_hours <= 8 and not alarm_states.get(now, False):
+                alarm_states[now] = True
+                talk(f'hey, it is, {hour_ampm}')
+            elif 18 <= calculate_hours <= 23 and not alarm_states.get(now, False):
+                alarm_states[now] = True
+                talk(f'hey, it is, {hour_ampm}')
+            else:
+                pass
+        else:
+            pass
+    for key in alarms:
+        if key in now and not alarm_states.get(key, False):
+            print(f'Alarm: {alarms[key]}')
+            alarm_states[key] = True  # Set alarm state to True
+            talk(f'Alarm triggered: {alarms[key]}')
+
+
+def standby_add(counter):
+    counter = counter + 1
+
+def standby_reset(counter):
+    counter = counter
+    counter = 0
+
+
+
+df_importantdata = create_dataframe_from_csv("scripts/important data.csv")
+motivation_quotes = create_dataframe_from_csv("scripts/motivation quotes.csv")
+thatsright = create_dataframe_from_csv("scripts/thats right.csv")
+alarms = create_dataframe_from_csv("scripts/alarms.csv")
+chit_chat = create_dataframe_from_csv("scripts/scripts.csv")
 
 talk(f'hello, i am {butler}, your butler')
 while True:
-    try:
-        run_alexa()
-    except:
-        #talk('balls')
-        standby()
-        if 'jeff' in command:
-            talk('hi, this is jeff')
-            run_alexa() 
-        
+    check_alarm()
+    command = take_command()
+    if command is not None:
+        nap(command)
+        response = str(functions(command))
+        if response != 'None':
+            talk(response)
+            pass
+        else:
+            response = str(chitchat(command))
+            if response != 'None':
+                talk(response)
+            else:
+                pass
+
+    else:
+        print('.')
